@@ -20,13 +20,17 @@ type ConsumerManager struct {
 	consumersLock sync.RWMutex
 	consumers     map[*Consumer]struct{}
 
-	wg sync.WaitGroup
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
 func NewConsumerManager(pool *GoroutinePool) *ConsumerManager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &ConsumerManager{
-		pool:      pool,
-		consumers: make(map[*Consumer]struct{}),
+		pool:       pool,
+		consumers:  make(map[*Consumer]struct{}),
+		ctx:        ctx,
+		cancelFunc: cancel,
 	}
 }
 
@@ -39,18 +43,18 @@ func (x *ConsumerManager) Run() {
 	// 然后再启动定时检查的任务
 	go func() {
 
-		// 多协程协同
-		x.wg.Add(1)
-		defer func() {
-			x.wg.Done()
-		}()
-
+		ticker := time.NewTicker(x.pool.options.ConsumerIdleCheckInterval)
+		defer ticker.Stop()
 		for {
 
 			// 把这个放前面，可以快速展开Consumer的数量到MAX，如果任务比较多的话
 			x.check()
 
-			time.Sleep(x.pool.options.ConsumerIdleCheckInterval)
+			select {
+			case <-ticker.C:
+			case <-x.ctx.Done():
+				return
+			}
 		}
 
 	}()
@@ -62,7 +66,7 @@ func (x *ConsumerManager) check() {
 	// 如果当前消费者数量小于要求的，则增加到要求的最小的消费者数量
 	if uint64(len(x.consumers)) < x.pool.options.MinConsumerNum {
 		for i := uint64(0); i < x.pool.options.MinConsumerNum; i++ {
-			if !x.startConsumer(context.Background()) {
+			if !x.startConsumer(x.ctx) {
 				return
 			}
 		}
@@ -74,13 +78,14 @@ func (x *ConsumerManager) check() {
 	// TODO 增加的时候设计一个增加算法
 	for x.pool.TaskQueueSize() != 0 && uint64(len(x.consumers)) < x.pool.options.MaxConsumerNum {
 		// 启动新的任务，直到把队列处理完或者消费者数量达到最大限制
-		if !x.startConsumer(context.Background()) {
+		if !x.startConsumer(x.ctx) {
 			return
 		}
 	}
 
 	// 任务队列为空了，并且当前有很多消费者处于空闲状态，则将多余的消费者都释放掉，保持一个最小值就可以了
 	if x.pool.TaskQueueSize() == 0 && uint64(len(x.consumers)) >= x.pool.options.MinConsumerNum && len(idleConsumers) != 0 {
+		// TODO 算的时候是不是要上锁?
 		needShutdownConsumerCount := len(x.consumers) - int(x.pool.options.MinConsumerNum)
 		for i := 0; i < needShutdownConsumerCount; i++ {
 			consumer := idleConsumers[i]
@@ -123,6 +128,7 @@ func (x *ConsumerManager) Await() {
 	for consumer := range x.consumers {
 		consumer.Await()
 	}
+	x.cancelFunc()
 }
 
 // 启动一个消费者
