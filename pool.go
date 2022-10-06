@@ -142,7 +142,6 @@ func (x *GoroutinePool) SubmitNextTaskByPayload(ctx context.Context, taskPayload
 			TaskType:    TaskTypePayload,
 			TaskPayload: taskPayload,
 		}:
-			continue
 		case <-ctx.Done():
 			return ErrContextTimeout
 		}
@@ -162,7 +161,6 @@ func (x *GoroutinePool) SubmitNextTaskByFunc(ctx context.Context, taskFunc TaskF
 			TaskType: TaskTypeFunc,
 			TaskFunc: taskFunc,
 		}:
-			continue
 		case <-ctx.Done():
 			return ErrContextTimeout
 		}
