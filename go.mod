@@ -1,6 +1,6 @@
-module github.com/CC11001100/go-goroutine-pool
+module github.com/golang-infrastructure/go-goroutine-pool
 
-go 1.19
+go 1.18
 
 require (
 	github.com/gin-contrib/sse v0.1.0 // indirect
