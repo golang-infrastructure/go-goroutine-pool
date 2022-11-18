@@ -72,12 +72,11 @@ func (x *Consumer) changeState(state ConsumerState) ConsumerState {
 func (x *Consumer) compareAndChangeState(except ConsumerState, newState ConsumerState) bool {
 	x.stateLock.Lock()
 	defer x.stateLock.Unlock()
-	if x.state == except {
-		x.state = newState
-		return true
-	} else {
+	if x.state != except {
 		return false
 	}
+	x.state = newState
+	return true
 }
 
 // Idle 当前消费者距离上次有任务已经过去多长时间了
@@ -104,9 +103,7 @@ func (x *Consumer) Consume(pool *GoroutinePool) {
 
 	// 用于判断Consume是否退出
 	x.consumeWg.Add(1)
-	defer func() {
-		x.consumeWg.Done()
-	}()
+	defer x.consumeWg.Done()
 
 	x.pool = pool
 
@@ -140,18 +137,16 @@ func (x *Consumer) runTask(task *Task) {
 	// 防止退出状态被覆盖，这样子即使是刚刚进去到此方法之后状态被改变
 	// 也会在执行完当前任务之后下一次循环时检测到退出状态从而退出
 	lastState := x.changeState(ConsumerStateBusy)
-	defer func() {
-		// 如果状态不是Busy了，说明在执行任务的时候又有人修改状态了，则保持那个人的状态即可，否则的话一律认为是应该恢复到空闲状态
-		x.compareAndChangeState(ConsumerStateBusy, lastState)
-	}()
+
+	// 如果状态不是Busy了，说明在执行任务的时候又有人修改状态了，则保持那个人的状态即可，否则的话一律认为是应该恢复到空闲状态
+	defer x.compareAndChangeState(ConsumerStateBusy, lastState)
 
 	// 任务开始的时候更新一次最后执行任务的时间
 	x.updateLastConsumerTime()
-	defer func() {
-		// 任务执行完的时候也更新最后一次消费任务的时间
-		// 把消费时间看做是一个时间段，在段的两头都更新一次
-		x.updateLastConsumerTime()
-	}()
+
+	// 任务执行完的时候也更新最后一次消费任务的时间
+	// 把消费时间看做是一个时间段，在段的两头都更新一次
+	defer x.updateLastConsumerTime()
 
 	// 如果开启了panic捕捉，则启动一个panic检测
 	if x.pool.options.isRunTaskEnablePanicRecovery() {
@@ -166,12 +161,14 @@ func (x *Consumer) runTask(task *Task) {
 	// 执行任务，根据不同的任务类型有不同的执行方式
 	ctx, cancelFunc := x.pool.options.getTaskRunContextLimit()
 	defer cancelFunc()
-	if task.TaskType == TaskTypeFunc {
+
+	switch task.TaskType {
+	case TaskTypeFunc:
 		err := task.TaskFunc(ctx, x.pool, x)
 		if err != nil && x.pool.options.TaskErrorCallback != nil {
 			x.pool.options.TaskErrorCallback(ctx, x.pool, x, task, err)
 		}
-	} else if task.TaskType == TaskTypePayload {
+	case TaskTypePayload:
 		// payload类型的任务必须有一个执行函数，要不然没办法执行啊
 		if x.pool.options.PayloadConsumeFunc == nil {
 			panic("payload type task must have set CreateGoroutinePoolOptions.PayloadConsumeFunc field")
@@ -181,6 +178,7 @@ func (x *Consumer) runTask(task *Task) {
 			x.pool.options.TaskErrorCallback(ctx, x.pool, x, task, err)
 		}
 	}
+
 }
 
 // Shutdown 让此消费者退出，如果退出的时候有任务正在执行，则会执行完手头的任务再退出
