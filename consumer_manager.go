@@ -1,4 +1,4 @@
-package go_goroutine_pool
+package goroutine_pool
 
 import (
 	"context"
@@ -8,9 +8,10 @@ import (
 
 // ------------------------------------------------ ConsumerManager ----------------------------------------------------
 
+// ConsumerManager 消费者管理器，用来控制消费者的生生死死
 type ConsumerManager struct {
 
-	// 为哪个协程池工作
+	// 当前的消费者管理器为哪个协程池工作，一个消费者管理器只能绑定到一个协程池上
 	pool *GoroutinePool
 
 	// 用于协调消费者
@@ -18,7 +19,7 @@ type ConsumerManager struct {
 
 	// 当前在接受管理的消费者都有哪些
 	consumersLock sync.RWMutex
-	consumers     map[*Consumer]struct{}
+	consumers     map]struct{}
 
 	ctx        context.Context
 	cancelFunc context.CancelFunc
@@ -28,13 +29,17 @@ func NewConsumerManager(pool *GoroutinePool) *ConsumerManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &ConsumerManager{
 		pool:       pool,
-		consumers:  make(map[*Consumer]struct{}),
+		consumerWg: sync.WaitGroup{},
+
+		consumersLock: sync.RWMutex{},
+		consumers:     make(map]struct{}),
+
 		ctx:        ctx,
 		cancelFunc: cancel,
 	}
 }
 
-// Run 管理进程
+// Run 启动消费者管理器，开始替协程池打工，管理它名下的消费者
 func (x *ConsumerManager) Run() {
 
 	// 初始化启动一次，先保证一部分Consumer启动起来了
@@ -88,7 +93,7 @@ func (x *ConsumerManager) check() {
 		// TODO 算的时候是不是要上锁?
 		needShutdownConsumerCount := len(x.consumers) - int(x.pool.options.MinConsumerNum)
 		for i := 0; i < needShutdownConsumerCount; i++ {
-			consumer := idleConsumers[i]
+			consumer := idleConsumers
 			consumer.Shutdown()
 			consumer.Await()
 			delete(x.consumers, consumer)
@@ -135,7 +140,7 @@ func (x *ConsumerManager) Await() {
 // return: true表示成功启动了消费者，false表示启动失败
 func (x *ConsumerManager) startConsumer(ctx context.Context) bool {
 
-	consumer := NewConsumer(x.pool.options)
+	consumer := NewConsumer(x.pool)
 
 	// 如果配置了消费者初始化的回调事件，则执行一下回调事件
 	if x.pool.options.ConsumerInitCallback != nil {
@@ -146,13 +151,15 @@ func (x *ConsumerManager) startConsumer(ctx context.Context) bool {
 		}
 	}
 
-	// 加入到全家桶管理
-	x.consumers[consumer] = struct{}{}
+	// consumer创建成功，加入到全家桶管理
+	x.consumers = struct{}{}
 
-	// 启动Worker
+	// 启动消费者，启动的时候为其添加一些声明周期钩子
 	x.consumerWg.Add(1)
 	go func() {
+		// 消费者退出的时候要能够感知得到，并告知管理器自己退出了
 		defer x.consumerWg.Done()
+		// 消费者退出的时候要能够触发退出事件，如果有设置的话
 		defer func() {
 			if x.pool.options.ConsumerExitCallback != nil {
 				ctx, cancelFunc := context.WithTimeout(context.Background(), time.Minute*5)
@@ -160,6 +167,7 @@ func (x *ConsumerManager) startConsumer(ctx context.Context) bool {
 				x.pool.options.ConsumerExitCallback(ctx, x.pool, consumer)
 			}
 		}()
+		// 真正启动消费者，消费者就在这个协程内运行了
 		consumer.Consume(x.pool)
 	}()
 

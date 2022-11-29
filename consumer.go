@@ -1,4 +1,4 @@
-package go_goroutine_pool
+package goroutine_pool
 
 import (
 	"sync"
@@ -12,13 +12,13 @@ type ConsumerState int
 
 const (
 
-	// ConsumerStateIdle 当前消费者处于空闲状态
+	// ConsumerStateIdle 消费者处于空闲状态
 	ConsumerStateIdle = iota
 
 	// ConsumerStateBusy 消费者在忙着处理任务
 	ConsumerStateBusy
 
-	// ConsumerStateShutdown 消费者已经退出
+	// ConsumerStateShutdown 消费者已经退出，不会再参与任务处理
 	ConsumerStateShutdown
 )
 
@@ -27,27 +27,40 @@ const (
 // Consumer 用于处理协程池中的任务的一个消费者协程
 type Consumer struct {
 
-	// 当前消费者自己独享的一个存储空间，可以进行一些存储之类的，比如每个消费者初始化一个数据库连接之类的
+	// 当前消费者自己独享的一个存储空间，可以进行一些存储之类的，比如每个消费者初始化一个数据库连接之类的或其他资源，还可避免出现锁竞争的情况
 	*ConsumerStorage
 
-	// 当前消费者绑定到的协程池
+	// 当前消费者绑定到的协程池，每个消费者仅且绑定到一个线程池
 	pool *GoroutinePool
 
 	// 消费者的状态
 	stateLock sync.RWMutex
 	state     ConsumerState
 
-	// 当前消费者上次消费到任务的时间
+	// 当前消费者上次消费到任务的时间，用于统计消费者的空闲时间
 	lastConsumerTimeLock sync.RWMutex
 	lastConsumeTime      time.Time
 
-	// 表示是否是最终退出完成
+	// 表示此消费者是否是最终退出完成，消费者状态修改为ConsumerStateShutdown的时候手头可能还会有任务没处理完
+	// 那么它不会接受新的任务，但是会把手头的这个任务处理完，这个标志位就是用来区分是否是真的结束了
 	consumeWg sync.WaitGroup
 }
 
-func NewConsumer(*CreateGoroutinePoolOptions) *Consumer {
+// NewConsumer 创建一个新的消费者
+func NewConsumer(pool *GoroutinePool) *Consumer {
 	return &Consumer{
 		ConsumerStorage: NewWorkerStorage(),
+
+		pool: pool,
+
+		// 刚创建完是空闲状态
+		state:     ConsumerStateIdle,
+		stateLock: sync.RWMutex{},
+
+		lastConsumeTime:      time.Now(),
+		lastConsumerTimeLock: sync.RWMutex{},
+
+		consumeWg: sync.WaitGroup{},
 	}
 }
 
@@ -98,7 +111,7 @@ func (x *Consumer) updateLastConsumerTime() {
 	x.lastConsumeTime = time.Now()
 }
 
-// Consume 阻塞性的任务，会一直消费给定的池子中的任务
+// Consume 阻塞性的任务，会一直消费给定的池子中的任务直到自己被关闭或者任务队列消费完毕
 func (x *Consumer) Consume(pool *GoroutinePool) {
 
 	// 用于判断Consume是否退出
@@ -213,7 +226,7 @@ func (x *ConsumerStorage) Store(key string, value any) {
 
 // Load 从Consumer的存储空间读取内容
 func (x *ConsumerStorage) Load(key string) any {
-	return x.storageMap[key]
+	return x.storageMap
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

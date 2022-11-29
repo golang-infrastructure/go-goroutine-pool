@@ -1,4 +1,4 @@
-package go_goroutine_pool
+package goroutine_pool
 
 import (
 	"context"
@@ -8,40 +8,57 @@ import (
 )
 
 const (
-	// DefaultTaskQueueMaxLength 默认的任务队列
-	DefaultTaskQueueMaxLength = 100_000
+
+	// TaskQueueMaxLengthUnlimited 表示队列中等待执行的任务的数量时没有限制的，会随着任务的提交自动增长
+	TaskQueueMaxLengthUnlimited = -1
+
+	// DefaultTaskQueueMaxLength 默认的任务队列的最大长度，当任务队列中挤压数超过此数量时提交任务时就会卡住直到任务队列有空闲或者超时
+	DefaultTaskQueueMaxLength = TaskQueueMaxLengthUnlimited
 )
 
 // 空闲任务的参数控制
 const (
+
+	// DefaultInitConsumerNum 初始化的任务数量
 	DefaultInitConsumerNum = 100
-	DefaultMaxConsumerNum  = 100
-	DefaultMinConsumerNum  = 100
+
+	// DefaultMaxConsumerNum 最大消费者的数量
+	DefaultMaxConsumerNum = 100
+
+	// DefaultMinConsumerNum 最小的消费者数量
+	DefaultMinConsumerNum = 100
+
+	// DefaultConsumerMaxIdle 任务空闲多久之后会被释放掉
 	DefaultConsumerMaxIdle = time.Minute * 5
 )
 
 const (
+
+	// DefaultConsumerIdleCheckInterval 默认情况下隔多久检查一下消费者是否处于空闲状态
 	DefaultConsumerIdleCheckInterval = time.Minute
-	DefaultRunTaskTimeout            = time.Minute * 5
+
+	// DefaultRunTaskTimeout 默认情况下任务运行多久认为是超时了
+	DefaultRunTaskTimeout = time.Minute * 5
 )
 
-// CreateGoroutinePoolOptions 创建协程池的各种选项
+// CreateGoroutinePoolOptions 创建协程池的各种选项，用于深度定制协程池
 type CreateGoroutinePoolOptions struct {
 
-	// 可以为pool取一个更便于理解的名字，如果没有取的话，则会默认生成一个
+	// 可以为pool取一个更便于理解的名字，如果没有取的话，则会默认生成一个，这个名字在开启监控的时候可以用来区分不同的协程池
 	PoolName string
 
-	// 任务队列相关
+	// 任务队列的最大长度，当任务队列中挤压的任务数量超过这个数字时，新提交的任务就会卡住，直到任务队列有名额或者提交超时
 	PoolTaskQueueMaxLength uint64
 
-	// 使用payload形式提交的任务需要的运行函数
+	// 使用payload形式提交的任务需要的运行函数，这样提交任务的时候就只需要提交任务参数就可以了
 	PayloadConsumeFunc PayloadConsumeFunc
 
-	// 最少有几个人在执行
+	// 下面这几个参数是当协程池中的协程消费者的数量需要动态的调整的时候，用来控制如何调整的
+	// 初始化的时候有几个消费者在执行，协程池创建的时候就会启动这么多的消费者
 	InitConsumerNum uint64
-	// 最多工作的worker数
+	// 最大的消费者数量，即使任务挤压再多，启动的消费者的数量也不会超过这个数量限制
 	MaxConsumerNum uint64
-	// 最小工作的worker数
+	// 最小工作的消费者数量，
 	MinConsumerNum uint64
 	// 当worker空闲超出多长时间之后将其释放掉
 	ConsumerMaxIdle time.Duration
@@ -164,12 +181,13 @@ func (x *CreateGoroutinePoolOptions) isRunTaskEnablePanicRecovery() bool {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+// 为协程池生成一个当前进程唯一的ID
 var poolIdGenerator atomic.Int64
 
 // 用于生成一个全局唯一的名字
 func genPoolName() string {
 	id := poolIdGenerator.Add(1)
-	return fmt.Sprintf("pool-%d", id)
+	return fmt.Sprintf("goroutine-pool-%d", id)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

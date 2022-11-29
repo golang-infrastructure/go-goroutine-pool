@@ -1,4 +1,4 @@
-package go_goroutine_pool
+package goroutine_pool
 
 import (
 	"context"

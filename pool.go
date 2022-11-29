@@ -1,4 +1,4 @@
-package go_goroutine_pool
+package goroutine_pool
 
 import (
 	"context"
@@ -8,11 +8,14 @@ import (
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-// TaskFunc 函数类型的任务
+// TaskFunc 函数类型的任务，提交一个符合此签名的任务到队列中作为一个任务，被调度的时候会执行此任务
+// 如果此任务有参数需要传递，通过闭包来传递，暂不支持通过形参传递
 type TaskFunc func(ctx context.Context, pool *GoroutinePool, worker *Consumer) error
 
-// PayloadConsumeFunc payload类型的任务，需要一个公共的能够执行payload的函数
+// PayloadConsumeFunc payload类型的任务，需要一个公共的能够执行payload的函数，这个函数需要符合此签名
 type PayloadConsumeFunc func(ctx context.Context, pool *GoroutinePool, worker *Consumer, taskPayload any) error
+
+// ------------------------------------------------ TaskType -----------------------------------------------------------
 
 // TaskType 任务类型，支持函数类型和payload类型
 type TaskType int
@@ -25,6 +28,8 @@ const (
 	// TaskTypePayload 值类型的任务，封装的是任务的一些参数，需要依赖ConsumerPayloadFunc来执行
 	TaskTypePayload
 )
+
+// ------------------------------------------------ Task ---------------------------------------------------------------
 
 // Task 表示一个待运行的任务
 type Task struct {
@@ -41,25 +46,29 @@ type Task struct {
 
 // ------------------------------------------------ GoroutinePool ------------------------------------------------------
 
+// GoroutinePool 协程池
+// 泛型参数是任务的payload的类型
 type GoroutinePool struct {
 
 	// 协程池的运行参数
 	options *CreateGoroutinePoolOptions
 
-	// 任务队列
+	// 任务队列，有缓冲大小的channel，大小由options.PoolTaskQueueMaxLength决定
 	taskChannel chan *Task
 
-	// 池子中的任务需要有消费者来消费，消费者管理器就是用来管理消费者的
+	// 池子中的任务需要有消费者来消费，池子并不直接管理消费者，消费者管理器就是用来管理消费者的
 	consumerManager *ConsumerManager
 
-	// 用于标识任务队列是否被关闭
+	// 用于标识任务队列是否被关闭，当任务队列被关闭就不会再接收新的任务提交了
 	taskChannelShutdown atomic.Bool
 
-	// 连接的下一个任务池，通常在构建DAG的时候有用
-	nextPoolSliceLock sync.RWMutex
-	nextPoolSlice     []*GoroutinePool
+	// 连接的下一个协程池，通常在构建DAG的时候有用，属于高级用法
+	// 一个协程池可以由多个后记协程池，在当前协程池中执行的任务可以向后续协程池中发送任务
+	nextPoolMapLock sync.RWMutex
+	nextPoolMap     map[string]*GoroutinePool
 }
 
+// NewGoroutinePool 创建一个协程池
 func NewGoroutinePool(options *CreateGoroutinePoolOptions) *GoroutinePool {
 
 	pool := &GoroutinePool{
@@ -67,6 +76,9 @@ func NewGoroutinePool(options *CreateGoroutinePoolOptions) *GoroutinePool {
 		// TODO 从配置中获取值
 		taskChannel:         make(chan *Task, options.PoolTaskQueueMaxLength),
 		taskChannelShutdown: atomic.Bool{},
+
+		nextPoolMapLock: sync.RWMutex{},
+		nextPoolMap:     make(map[string]*GoroutinePool),
 	}
 
 	// 池子中的消费者管理
@@ -87,7 +99,7 @@ func (x *GoroutinePool) SubmitTaskByFunc(ctx context.Context, taskFunc TaskFunc)
 	}:
 		return nil
 	case <-ctx.Done():
-		return ErrContextTimeout
+		return context.DeadlineExceeded
 	}
 }
 
@@ -106,7 +118,7 @@ func (x *GoroutinePool) SubmitTaskByPayload(ctx context.Context, taskPayload any
 	}:
 		return nil
 	case <-ctx.Done():
-		return ErrContextTimeout
+		return context.DeadlineExceeded
 	}
 }
 
@@ -120,10 +132,10 @@ func (x *GoroutinePool) TaskQueueSize() int {
 // AddNextPool 协程池允许桥接，桥接的协程池可以把任务发送到下一个池子中，这样当有很多个互相依赖的任务的时候，就可以自己用线程池搭建DAG
 func (x *GoroutinePool) AddNextPool(pool *GoroutinePool) *GoroutinePool {
 
-	x.nextPoolSliceLock.Lock()
-	defer x.nextPoolSliceLock.Lock()
+	x.nextPoolMapLock.Lock()
+	defer x.nextPoolMapLock.Lock()
 
-	x.nextPoolSlice = append(x.nextPoolSlice, pool)
+	x.nextPoolMap[pool.options.PoolName] = pool
 
 	return x
 }
@@ -131,19 +143,19 @@ func (x *GoroutinePool) AddNextPool(pool *GoroutinePool) *GoroutinePool {
 // SubmitNextTaskByPayload 往下一个阶段的池子中提交任务，如果下一个阶段的池子有多个，则每个都会被提交一个任务
 // ctx: 超时
 // Task: 任务的payload
-func (x *GoroutinePool) SubmitNextTaskByPayload(ctx context.Context, taskPayload any) error {
+func (x *GoroutinePool) SubmitNextTaskByPayload(ctx context.Context, taskPayload any, chooseNextPoolFunc ...func(pool *GoroutinePool) bool) error {
 
-	x.nextPoolSliceLock.RLock()
-	defer x.nextPoolSliceLock.RUnlock()
+	x.nextPoolMapLock.RLock()
+	defer x.nextPoolMapLock.RUnlock()
 
-	for _, pool := range x.nextPoolSlice {
+	for _, pool := range x.nextPoolMap {
 		select {
 		case pool.taskChannel <- &Task{
 			TaskType:    TaskTypePayload,
 			TaskPayload: taskPayload,
 		}:
 		case <-ctx.Done():
-			return ErrContextTimeout
+			return context.DeadlineExceeded
 		}
 	}
 	return nil
@@ -152,17 +164,17 @@ func (x *GoroutinePool) SubmitNextTaskByPayload(ctx context.Context, taskPayload
 // SubmitNextTaskByFunc 往下一个阶段的池子中提交函数类型的任务
 func (x *GoroutinePool) SubmitNextTaskByFunc(ctx context.Context, taskFunc TaskFunc) error {
 
-	x.nextPoolSliceLock.RLock()
-	defer x.nextPoolSliceLock.RUnlock()
+	x.nextPoolMapLock.RLock()
+	defer x.nextPoolMapLock.RUnlock()
 
-	for _, pool := range x.nextPoolSlice {
+	for _, pool := range x.nextPoolMap {
 		select {
 		case pool.taskChannel <- &Task{
 			TaskType: TaskTypeFunc,
 			TaskFunc: taskFunc,
 		}:
 		case <-ctx.Done():
-			return ErrContextTimeout
+			return context.DeadlineExceeded
 		}
 	}
 	return nil
@@ -197,27 +209,30 @@ func (x *GoroutinePool) AwaitDAG() {
 	}
 }
 
+// ShutdownAndAwait 关闭当前线程池，并等待当前线程池运行完毕
 func (x *GoroutinePool) ShutdownAndAwait() {
 	x.Shutdown()
 	x.Await()
 }
 
+// ShutdownAndAwaitDAG 关闭当前线程池，并等待整个DAG运行完毕
 func (x *GoroutinePool) ShutdownAndAwaitDAG() {
 	x.Shutdown()
 	x.AwaitDAG()
 }
 
-func (x *GoroutinePool) copyNextPoolSlice() []*GoroutinePool {
+// 在访问的时候做个快照，访问的是快照
+func (x *GoroutinePool) copyNextPoolSlice() map[string]*GoroutinePool {
 
-	x.nextPoolSliceLock.RLock()
-	defer x.nextPoolSliceLock.RUnlock()
+	x.nextPoolMapLock.RLock()
+	defer x.nextPoolMapLock.RUnlock()
 
 	// copy
-	nextPoolSliceCopy := make([]*GoroutinePool, len(x.nextPoolSlice))
-	for index, nextPool := range x.nextPoolSlice {
-		nextPoolSliceCopy[index] = nextPool
+	nextPoolMapCopy := make(map[string]*GoroutinePool, len(x.nextPoolMap))
+	for name, nextPool := range x.nextPoolMap {
+		nextPoolMapCopy[name] = nextPool
 	}
-	return nextPoolSliceCopy
+	return nextPoolMapCopy
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
