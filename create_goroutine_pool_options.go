@@ -51,7 +51,7 @@ type CreateGoroutinePoolOptions struct {
 	PoolTaskQueueMaxLength uint64
 
 	// 使用payload形式提交的任务需要的运行函数，这样提交任务的时候就只需要提交任务参数就可以了
-	PayloadConsumeFunc TaskPayloadConsumeFunc
+	TaskPayloadConsumeFunc TaskPayloadConsumeFunc
 
 	// 下面这几个参数是当协程池中的协程消费者的数量需要动态的调整的时候，用来控制如何调整的
 	// 初始化的时候有几个消费者在执行，协程池创建的时候就会启动这么多的消费者
@@ -86,7 +86,7 @@ func NewCreateGoroutinePoolOptions() *CreateGoroutinePoolOptions {
 	return &CreateGoroutinePoolOptions{
 		PoolName:               genPoolName(),
 		PoolTaskQueueMaxLength: DefaultTaskQueueMaxLength,
-		PayloadConsumeFunc:     nil,
+		TaskPayloadConsumeFunc: nil,
 
 		InitConsumerNum: DefaultInitConsumerNum,
 		MaxConsumerNum:  DefaultMaxConsumerNum,
@@ -114,8 +114,8 @@ func (x *CreateGoroutinePoolOptions) SetPoolTaskQueueMaxLength(taskQueueMaxLengt
 	return x
 }
 
-func (x *CreateGoroutinePoolOptions) SetPayloadConsumeFunc(payloadConsumeFunc TaskPayloadConsumeFunc) *CreateGoroutinePoolOptions {
-	x.PayloadConsumeFunc = payloadConsumeFunc
+func (x *CreateGoroutinePoolOptions) SetTaskPayloadConsumeFunc(taskPayloadConsumeFunc TaskPayloadConsumeFunc) *CreateGoroutinePoolOptions {
+	x.TaskPayloadConsumeFunc = taskPayloadConsumeFunc
 	return x
 }
 

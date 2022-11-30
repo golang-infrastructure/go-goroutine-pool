@@ -113,7 +113,7 @@ func (x *GoroutinePool) SubmitTaskByFunc(ctx context.Context, taskFunc TaskFunc)
 func (x *GoroutinePool) SubmitTaskByPayload(ctx context.Context, taskPayload any) error {
 
 	// 提交payload类型的任务的时候会进行检查，如果没有设置相应的处理函数的话直接就拒绝提交任务
-	if x.PayloadConsumeFunc == nil {
+	if x.TaskPayloadConsumeFunc == nil {
 		return ErrPayloadConsumeFuncNil
 	}
 
@@ -248,6 +248,7 @@ func (x *GoroutinePool) ShutdownAndAwait() {
 	x.Await()
 }
 
+// TODO 2022-12-1 00:34:36 池子关闭逻辑有问题，需要再想一想应该怎么协调
 // ShutdownAndAwaitDAG 关闭当前线程池，并等待整个DAG运行完毕
 func (x *GoroutinePool) ShutdownAndAwaitDAG() {
 	x.Shutdown()

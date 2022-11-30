@@ -185,10 +185,10 @@ func (x *Consumer) runTask(task *Task) {
 		}
 	case TaskTypePayload:
 		// payload类型的任务必须有一个执行函数，要不然没办法执行啊
-		if x.pool.PayloadConsumeFunc == nil {
+		if x.pool.TaskPayloadConsumeFunc == nil {
 			panic("payload type task must have set CreateGoroutinePoolOptions.TaskPayloadConsumeFunc field")
 		}
-		err := x.pool.PayloadConsumeFunc(ctx, x.pool, x, task.TaskPayload)
+		err := x.pool.TaskPayloadConsumeFunc(ctx, x.pool, x, task.TaskPayload)
 		if err != nil && x.pool.TaskErrorCallback != nil {
 			x.pool.TaskErrorCallback(ctx, x.pool, x, task, err)
 		}
