@@ -1,6 +1,7 @@
 package goroutine_pool
 
 import (
+	"context"
 	"github.com/golang-infrastructure/go-tuple"
 	"sync"
 	"time"
@@ -102,7 +103,7 @@ func (x *Consumer) Idle() time.Duration {
 
 // IsIdle 当前消费者是否处于闲置状态
 func (x *Consumer) IsIdle() bool {
-	return x.Idle() >= x.pool.options.ConsumerMaxIdle
+	return x.Idle() >= x.pool.ConsumerMaxIdle
 }
 
 // 更新最后一次消费任务的时间
@@ -153,43 +154,43 @@ func (x *Consumer) runTask(task *Task) {
 	lastState := x.changeState(ConsumerStateBusy)
 
 	// 如果状态不是Busy了，说明在执行任务的时候又有人修改状态了，则保持那个人的状态即可，否则的话一律认为是应该恢复到空闲状态
+	// 可能会有ABA问题，不过这里的场景暂不考虑这个
 	defer x.compareAndChangeState(ConsumerStateBusy, lastState)
 
 	// 任务开始的时候更新一次最后执行任务的时间
 	x.updateLastConsumerTime()
-
 	// 任务执行完的时候也更新最后一次消费任务的时间
 	// 把消费时间看做是一个时间段，在段的两头都更新一次
 	defer x.updateLastConsumerTime()
 
 	// 如果开启了panic捕捉，则启动一个panic检测
-	if x.pool.options.isRunTaskEnablePanicRecovery() {
+	if x.pool.isRunTaskEnablePanicRecovery() {
 		defer func() {
 			// 如果发生了panic，并且设置响应的处理方法的话，则调用其来处理panic
-			if r := recover(); r != nil && x.pool.options.RunTaskEnablePanicRecoveryFunc != nil {
-				x.pool.options.RunTaskEnablePanicRecoveryFunc(nil, x.pool, x, task, r)
+			if r := recover(); r != nil && x.pool.RunTaskEnablePanicRecoveryFunc != nil {
+				x.pool.RunTaskEnablePanicRecoveryFunc(context.Background(), x.pool, x, task, r)
 			}
 		}()
 	}
 
 	// 执行任务，根据不同的任务类型有不同的执行方式
-	ctx, cancelFunc := x.pool.options.getTaskRunContextLimit()
+	ctx, cancelFunc := x.pool.getTaskRunContextLimit()
 	defer cancelFunc()
 
 	switch task.TaskType {
 	case TaskTypeFunc:
 		err := task.TaskFunc(ctx, x.pool, x)
-		if err != nil && x.pool.options.TaskErrorCallback != nil {
-			x.pool.options.TaskErrorCallback(ctx, x.pool, x, task, err)
+		if err != nil && x.pool.TaskErrorCallback != nil {
+			x.pool.TaskErrorCallback(ctx, x.pool, x, task, err)
 		}
 	case TaskTypePayload:
 		// payload类型的任务必须有一个执行函数，要不然没办法执行啊
-		if x.pool.options.PayloadConsumeFunc == nil {
+		if x.pool.PayloadConsumeFunc == nil {
 			panic("payload type task must have set CreateGoroutinePoolOptions.TaskPayloadConsumeFunc field")
 		}
-		err := x.pool.options.PayloadConsumeFunc(ctx, x.pool, x, task.TaskPayload)
-		if err != nil && x.pool.options.TaskErrorCallback != nil {
-			x.pool.options.TaskErrorCallback(ctx, x.pool, x, task, err)
+		err := x.pool.PayloadConsumeFunc(ctx, x.pool, x, task.TaskPayload)
+		if err != nil && x.pool.TaskErrorCallback != nil {
+			x.pool.TaskErrorCallback(ctx, x.pool, x, task, err)
 		}
 	}
 

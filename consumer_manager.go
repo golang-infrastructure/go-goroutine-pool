@@ -48,7 +48,7 @@ func (x *ConsumerManager) Run() {
 	// 然后再启动定时检查的任务
 	go func() {
 
-		ticker := time.NewTicker(x.pool.options.ConsumerIdleCheckInterval)
+		ticker := time.NewTicker(x.pool.ConsumerIdleCheckInterval)
 		defer ticker.Stop()
 		for {
 
@@ -69,8 +69,8 @@ func (x *ConsumerManager) check() {
 	idleConsumers := x.findIdleConsumers()
 
 	// 如果当前消费者数量小于要求的，则增加到要求的最小的消费者数量
-	if uint64(len(x.consumers)) < x.pool.options.MinConsumerNum {
-		for i := uint64(0); i < x.pool.options.MinConsumerNum; i++ {
+	if uint64(len(x.consumers)) < x.pool.MinConsumerNum {
+		for i := uint64(0); i < x.pool.MinConsumerNum; i++ {
 			if !x.startConsumer(x.ctx) {
 				return
 			}
@@ -81,7 +81,7 @@ func (x *ConsumerManager) check() {
 
 	// 如果有很多任务都没有处理，并且当前的消费者都处于繁忙状态，说明负载比较高，则将消费者逐步增加
 	// TODO 增加的时候设计一个增加算法
-	for x.pool.TaskQueueSize() != 0 && uint64(len(x.consumers)) < x.pool.options.MaxConsumerNum {
+	for x.pool.TaskQueueSize() != 0 && uint64(len(x.consumers)) < x.pool.MaxConsumerNum {
 		// 启动新的任务，直到把队列处理完或者消费者数量达到最大限制
 		if !x.startConsumer(x.ctx) {
 			return
@@ -89,9 +89,9 @@ func (x *ConsumerManager) check() {
 	}
 
 	// 任务队列为空了，并且当前有很多消费者处于空闲状态，则将多余的消费者都释放掉，保持一个最小值就可以了
-	if x.pool.TaskQueueSize() == 0 && uint64(len(x.consumers)) >= x.pool.options.MinConsumerNum && len(idleConsumers) != 0 {
+	if x.pool.TaskQueueSize() == 0 && uint64(len(x.consumers)) >= x.pool.MinConsumerNum && len(idleConsumers) != 0 {
 		// TODO 算的时候是不是要上锁?
-		needShutdownConsumerCount := len(x.consumers) - int(x.pool.options.MinConsumerNum)
+		needShutdownConsumerCount := len(x.consumers) - int(x.pool.MinConsumerNum)
 		for i := 0; i < needShutdownConsumerCount; i++ {
 			consumer := idleConsumers[i]
 			consumer.Shutdown()
@@ -143,9 +143,9 @@ func (x *ConsumerManager) startConsumer(ctx context.Context) bool {
 	consumer := NewConsumer(x.pool)
 
 	// 如果配置了消费者初始化的回调事件，则执行一下回调事件
-	if x.pool.options.ConsumerInitCallback != nil {
+	if x.pool.ConsumerInitCallback != nil {
 		// 如果初始化方法返回一个error，则认为是中断此Consumer启动的信号，则不再继续启动流程
-		err := x.pool.options.ConsumerInitCallback(ctx, x.pool, consumer)
+		err := x.pool.ConsumerInitCallback(ctx, x.pool, consumer)
 		if err != nil {
 			return false
 		}
@@ -161,10 +161,10 @@ func (x *ConsumerManager) startConsumer(ctx context.Context) bool {
 		defer x.consumerWg.Done()
 		// 消费者退出的时候要能够触发退出事件，如果有设置的话
 		defer func() {
-			if x.pool.options.ConsumerExitCallback != nil {
+			if x.pool.ConsumerExitCallback != nil {
 				ctx, cancelFunc := context.WithTimeout(context.Background(), time.Minute*5)
 				defer cancelFunc()
-				x.pool.options.ConsumerExitCallback(ctx, x.pool, consumer)
+				x.pool.ConsumerExitCallback(ctx, x.pool, consumer)
 			}
 		}()
 		// 真正启动消费者，消费者就在这个协程内运行了

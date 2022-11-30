@@ -51,7 +51,7 @@ type Task struct {
 type GoroutinePool struct {
 
 	// 协程池的运行参数
-	options *CreateGoroutinePoolOptions
+	*CreateGoroutinePoolOptions
 
 	// 任务队列，有缓冲大小的channel，大小由options.PoolTaskQueueMaxLength决定
 	taskChannel chan *Task
@@ -68,11 +68,16 @@ type GoroutinePool struct {
 	nextPoolMap     map[string]*GoroutinePool
 }
 
+// NewGoroutinePoolWithDefaultOptions 创建协程池，使用默认的选项
+func NewGoroutinePoolWithDefaultOptions() *GoroutinePool {
+	return NewGoroutinePool(NewCreateGoroutinePoolOptions())
+}
+
 // NewGoroutinePool 创建一个协程池
 func NewGoroutinePool(options *CreateGoroutinePoolOptions) *GoroutinePool {
 
 	pool := &GoroutinePool{
-		options: options,
+		CreateGoroutinePoolOptions: options,
 		// TODO 从配置中获取值
 		taskChannel:         make(chan *Task, options.PoolTaskQueueMaxLength),
 		taskChannelShutdown: atomic.Bool{},
@@ -108,7 +113,7 @@ func (x *GoroutinePool) SubmitTaskByFunc(ctx context.Context, taskFunc TaskFunc)
 func (x *GoroutinePool) SubmitTaskByPayload(ctx context.Context, taskPayload any) error {
 
 	// 提交payload类型的任务的时候会进行检查，如果没有设置相应的处理函数的话直接就拒绝提交任务
-	if x.options.PayloadConsumeFunc == nil {
+	if x.PayloadConsumeFunc == nil {
 		return ErrPayloadConsumeFuncNil
 	}
 
@@ -137,7 +142,7 @@ func (x *GoroutinePool) AddNextPool(pool *GoroutinePool) *GoroutinePool {
 	x.nextPoolMapLock.Lock()
 	defer x.nextPoolMapLock.Lock()
 
-	x.nextPoolMap[pool.options.PoolName] = pool
+	x.nextPoolMap[pool.PoolName] = pool
 
 	return x
 }
