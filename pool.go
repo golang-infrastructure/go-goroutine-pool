@@ -147,6 +147,15 @@ func (x *GoroutinePool) AddNextPool(pool *GoroutinePool) *GoroutinePool {
 	return x
 }
 
+// SubmitNextTaskByPayloadToPool 根据协程池的名称提交Payload类型的任务，当DAG有多个后续协程池时使用
+func (x *GoroutinePool) SubmitNextTaskByPayloadToPool(ctx context.Context, taskPayload any, poolName string) error {
+	nextPool, exists := x.nextPoolMap[poolName]
+	if !exists {
+		return ErrPoolNotFound
+	}
+	return nextPool.SubmitTaskByPayload(ctx, taskPayload)
+}
+
 // SubmitNextTaskByPayload 往下一个阶段的池子中提交任务，如果下一个阶段的池子有多个，则每个都会被提交一个任务
 // ctx: 超时
 // Task: 任务的payload
@@ -170,6 +179,15 @@ func (x *GoroutinePool) SubmitNextTaskByPayload(ctx context.Context, taskPayload
 		}
 	}
 	return nil
+}
+
+// SubmitNextTaskByFuncToPool 根据协程池的名字提交后续的任务，当DAG有多个后续协程池时使用
+func (x *GoroutinePool) SubmitNextTaskByFuncToPool(ctx context.Context, taskFunc TaskFunc, poolName string) error {
+	nextPool, exists := x.nextPoolMap[poolName]
+	if !exists {
+		return ErrPoolNotFound
+	}
+	return nextPool.SubmitTaskByFunc(ctx, taskFunc)
 }
 
 // SubmitNextTaskByFunc 往下一个阶段的池子中提交函数类型的任务

@@ -9,7 +9,7 @@ import (
 )
 
 func readFileLines() []string {
-	lines := make([]string, 1000)
+	lines := make([]string, 10)
 	for index := range lines {
 		lines[index] = strconv.Itoa(index)
 	}
@@ -22,8 +22,9 @@ func main() {
 	processGoroutine.SetMaxConsumerNum(1)
 
 	for _, line := range readFileLines() {
+		localLine := line
 		_ = processGoroutine.SubmitTaskByFunc(context.Background(), func(ctx context.Context, pool *goroutine_pool.GoroutinePool, worker *goroutine_pool.Consumer) error {
-			fmt.Println(line)
+			fmt.Println(localLine)
 			time.Sleep(time.Second)
 			return nil
 		})
