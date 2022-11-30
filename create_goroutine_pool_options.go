@@ -10,7 +10,7 @@ import (
 const (
 
 	// TaskQueueMaxLengthUnlimited 表示队列中等待执行的任务的数量时没有限制的，会随着任务的提交自动增长
-	TaskQueueMaxLengthUnlimited = -1
+	TaskQueueMaxLengthUnlimited = 0
 
 	// DefaultTaskQueueMaxLength 默认的任务队列的最大长度，当任务队列中挤压数超过此数量时提交任务时就会卡住直到任务队列有空闲或者超时
 	DefaultTaskQueueMaxLength = TaskQueueMaxLengthUnlimited
@@ -51,7 +51,7 @@ type CreateGoroutinePoolOptions struct {
 	PoolTaskQueueMaxLength uint64
 
 	// 使用payload形式提交的任务需要的运行函数，这样提交任务的时候就只需要提交任务参数就可以了
-	PayloadConsumeFunc PayloadConsumeFunc
+	PayloadConsumeFunc TaskPayloadConsumeFunc
 
 	// 下面这几个参数是当协程池中的协程消费者的数量需要动态的调整的时候，用来控制如何调整的
 	// 初始化的时候有几个消费者在执行，协程池创建的时候就会启动这么多的消费者
@@ -114,7 +114,7 @@ func (x *CreateGoroutinePoolOptions) SetPoolTaskQueueMaxLength(taskQueueMaxLengt
 	return x
 }
 
-func (x *CreateGoroutinePoolOptions) SetPayloadConsumeFunc(payloadConsumeFunc PayloadConsumeFunc) *CreateGoroutinePoolOptions {
+func (x *CreateGoroutinePoolOptions) SetPayloadConsumeFunc(payloadConsumeFunc TaskPayloadConsumeFunc) *CreateGoroutinePoolOptions {
 	x.PayloadConsumeFunc = payloadConsumeFunc
 	return x
 }

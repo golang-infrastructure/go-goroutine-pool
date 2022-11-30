@@ -1,6 +1,7 @@
 package goroutine_pool
 
 import (
+	"github.com/golang-infrastructure/go-tuple"
 	"sync"
 	"time"
 )
@@ -184,7 +185,7 @@ func (x *Consumer) runTask(task *Task) {
 	case TaskTypePayload:
 		// payload类型的任务必须有一个执行函数，要不然没办法执行啊
 		if x.pool.options.PayloadConsumeFunc == nil {
-			panic("payload type task must have set CreateGoroutinePoolOptions.PayloadConsumeFunc field")
+			panic("payload type task must have set CreateGoroutinePoolOptions.TaskPayloadConsumeFunc field")
 		}
 		err := x.pool.options.PayloadConsumeFunc(ctx, x.pool, x, task.TaskPayload)
 		if err != nil && x.pool.options.TaskErrorCallback != nil {
@@ -213,13 +214,14 @@ type ConsumerStorage struct {
 	storageMap map[string]any
 }
 
+// NewWorkerStorage 创建一个用来存储数据的东东
 func NewWorkerStorage() *ConsumerStorage {
 	return &ConsumerStorage{
 		storageMap: make(map[string]any),
 	}
 }
 
-// Store 把内容暂存到Consumer的存储空间中
+// Store 把内容暂存到Consumer的存储空间中，相当于是一个简单的KV数据库
 func (x *ConsumerStorage) Store(key string, value any) {
 	x.storageMap[key] = value
 }
@@ -227,6 +229,25 @@ func (x *ConsumerStorage) Store(key string, value any) {
 // Load 从Consumer的存储空间读取内容
 func (x *ConsumerStorage) Load(key string) any {
 	return x.storageMap
+}
+
+// Clear 清空存储空间
+func (x *ConsumerStorage) Clear() {
+	x.storageMap = make(map[string]any)
+}
+
+// List 列出当前存储的所有KV对
+func (x *ConsumerStorage) List() []*tuple.Tuple2[string, any] {
+	result := make([]*tuple.Tuple2[string, any], 0)
+	for key, value := range x.storageMap {
+		result = append(result, tuple.New2(key, value))
+	}
+	return result
+}
+
+// Size 返回当前存储的大小
+func (x *ConsumerStorage) Size() int {
+	return len(x.storageMap)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

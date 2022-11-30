@@ -12,8 +12,8 @@ import (
 // 如果此任务有参数需要传递，通过闭包来传递，暂不支持通过形参传递
 type TaskFunc func(ctx context.Context, pool *GoroutinePool, worker *Consumer) error
 
-// PayloadConsumeFunc payload类型的任务，需要一个公共的能够执行payload的函数，这个函数需要符合此签名
-type PayloadConsumeFunc func(ctx context.Context, pool *GoroutinePool, worker *Consumer, taskPayload any) error
+// TaskPayloadConsumeFunc payload类型的任务，需要一个公共的能够执行payload的函数，这个函数需要符合此签名
+type TaskPayloadConsumeFunc func(ctx context.Context, pool *GoroutinePool, worker *Consumer, taskPayload any) error
 
 // ------------------------------------------------ TaskType -----------------------------------------------------------
 
@@ -92,11 +92,12 @@ func NewGoroutinePool(options *CreateGoroutinePoolOptions) *GoroutinePool {
 
 // SubmitTaskByFunc 提交一个函数作为任务运行
 func (x *GoroutinePool) SubmitTaskByFunc(ctx context.Context, taskFunc TaskFunc) error {
-	select {
-	case x.taskChannel <- &Task{
+	task := &Task{
 		TaskType: TaskTypeFunc,
 		TaskFunc: taskFunc,
-	}:
+	}
+	select {
+	case x.taskChannel <- task:
 		return nil
 	case <-ctx.Done():
 		return context.DeadlineExceeded
@@ -111,11 +112,12 @@ func (x *GoroutinePool) SubmitTaskByPayload(ctx context.Context, taskPayload any
 		return ErrPayloadConsumeFuncNil
 	}
 
-	select {
-	case x.taskChannel <- &Task{
+	task := &Task{
 		TaskType:    TaskTypePayload,
 		TaskPayload: taskPayload,
-	}:
+	}
+	select {
+	case x.taskChannel <- task:
 		return nil
 	case <-ctx.Done():
 		return context.DeadlineExceeded
@@ -149,6 +151,10 @@ func (x *GoroutinePool) SubmitNextTaskByPayload(ctx context.Context, taskPayload
 	defer x.nextPoolMapLock.RUnlock()
 
 	for _, pool := range x.nextPoolMap {
+		// 路由筛选
+		if len(chooseNextPoolFunc) != 0 && !chooseNextPoolFunc[0](pool) {
+			continue
+		}
 		select {
 		case pool.taskChannel <- &Task{
 			TaskType:    TaskTypePayload,
@@ -162,12 +168,16 @@ func (x *GoroutinePool) SubmitNextTaskByPayload(ctx context.Context, taskPayload
 }
 
 // SubmitNextTaskByFunc 往下一个阶段的池子中提交函数类型的任务
-func (x *GoroutinePool) SubmitNextTaskByFunc(ctx context.Context, taskFunc TaskFunc) error {
+func (x *GoroutinePool) SubmitNextTaskByFunc(ctx context.Context, taskFunc TaskFunc, chooseNextPoolFunc ...func(pool *GoroutinePool) bool) error {
 
 	x.nextPoolMapLock.RLock()
 	defer x.nextPoolMapLock.RUnlock()
 
 	for _, pool := range x.nextPoolMap {
+		// 路由筛选
+		if len(chooseNextPoolFunc) != 0 && !chooseNextPoolFunc[0](pool) {
+			continue
+		}
 		select {
 		case pool.taskChannel <- &Task{
 			TaskType: TaskTypeFunc,

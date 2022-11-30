@@ -19,7 +19,7 @@ type ConsumerManager struct {
 
 	// 当前在接受管理的消费者都有哪些
 	consumersLock sync.RWMutex
-	consumers     map]struct{}
+	consumers     map[*Consumer]struct{}
 
 	ctx        context.Context
 	cancelFunc context.CancelFunc
@@ -32,7 +32,7 @@ func NewConsumerManager(pool *GoroutinePool) *ConsumerManager {
 		consumerWg: sync.WaitGroup{},
 
 		consumersLock: sync.RWMutex{},
-		consumers:     make(map]struct{}),
+		consumers:     make(map[*Consumer]struct{}),
 
 		ctx:        ctx,
 		cancelFunc: cancel,
@@ -93,7 +93,7 @@ func (x *ConsumerManager) check() {
 		// TODO 算的时候是不是要上锁?
 		needShutdownConsumerCount := len(x.consumers) - int(x.pool.options.MinConsumerNum)
 		for i := 0; i < needShutdownConsumerCount; i++ {
-			consumer := idleConsumers
+			consumer := idleConsumers[i]
 			consumer.Shutdown()
 			consumer.Await()
 			delete(x.consumers, consumer)
@@ -152,7 +152,7 @@ func (x *ConsumerManager) startConsumer(ctx context.Context) bool {
 	}
 
 	// consumer创建成功，加入到全家桶管理
-	x.consumers = struct{}{}
+	x.consumers[consumer] = struct{}{}
 
 	// 启动消费者，启动的时候为其添加一些声明周期钩子
 	x.consumerWg.Add(1)
