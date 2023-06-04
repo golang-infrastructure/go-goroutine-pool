@@ -2,7 +2,6 @@ package goroutine_pool
 
 import (
 	"context"
-	"github.com/golang-infrastructure/go-tuple"
 	"sync"
 	"time"
 )
@@ -103,7 +102,7 @@ func (x *Consumer) Idle() time.Duration {
 
 // IsIdle 当前消费者是否处于闲置状态
 func (x *Consumer) IsIdle() bool {
-	return x.Idle() >= x.pool.ConsumerMaxIdle
+	return x.Idle() >= x.pool.Options.ConsumerMaxIdle
 }
 
 // 更新最后一次消费任务的时间
@@ -146,7 +145,7 @@ func (x *Consumer) Await() {
 	x.consumeWg.Wait()
 }
 
-// 真正执行任务的方法，一旦进入了此方法，无论Consumer是什么状态，都会保证此任务得到执行
+// 真正执行任务的方法，一旦进入了此方法，无论Consumer是什么状态，都会保证此任务得到执行，即consumer被中断的最小粒度是task级别的
 func (x *Consumer) runTask(task *Task) {
 
 	// 防止退出状态被覆盖，这样子即使是刚刚进去到此方法之后状态被改变
@@ -164,33 +163,33 @@ func (x *Consumer) runTask(task *Task) {
 	defer x.updateLastConsumerTime()
 
 	// 如果开启了panic捕捉，则启动一个panic检测
-	if x.pool.isRunTaskEnablePanicRecovery() {
+	if x.pool.Options.isRunTaskEnablePanicRecovery() {
 		defer func() {
 			// 如果发生了panic，并且设置响应的处理方法的话，则调用其来处理panic
-			if r := recover(); r != nil && x.pool.RunTaskEnablePanicRecoveryFunc != nil {
-				x.pool.RunTaskEnablePanicRecoveryFunc(context.Background(), x.pool, x, task, r)
+			if r := recover(); r != nil && x.pool.Options.RunTaskEnablePanicRecoveryFunc != nil {
+				x.pool.Options.RunTaskEnablePanicRecoveryFunc(context.Background(), x.pool, x, task, r)
 			}
 		}()
 	}
 
 	// 执行任务，根据不同的任务类型有不同的执行方式
-	ctx, cancelFunc := x.pool.getTaskRunContextLimit()
+	ctx, cancelFunc := x.pool.Options.getTaskRunContextLimit()
 	defer cancelFunc()
 
 	switch task.TaskType {
 	case TaskTypeFunc:
 		err := task.TaskFunc(ctx, x.pool, x)
-		if err != nil && x.pool.TaskErrorCallback != nil {
-			x.pool.TaskErrorCallback(ctx, x.pool, x, task, err)
+		if err != nil && x.pool.Options.TaskErrorCallback != nil {
+			x.pool.Options.TaskErrorCallback(ctx, x.pool, x, task, err)
 		}
 	case TaskTypePayload:
 		// payload类型的任务必须有一个执行函数，要不然没办法执行啊
-		if x.pool.TaskPayloadConsumeFunc == nil {
+		if x.pool.Options.TaskPayloadConsumeFunc == nil {
 			panic("payload type task must have set CreateGoroutinePoolOptions.TaskPayloadConsumeFunc field")
 		}
-		err := x.pool.TaskPayloadConsumeFunc(ctx, x.pool, x, task.TaskPayload)
-		if err != nil && x.pool.TaskErrorCallback != nil {
-			x.pool.TaskErrorCallback(ctx, x.pool, x, task, err)
+		err := x.pool.Options.TaskPayloadConsumeFunc(ctx, x.pool, x, task.TaskPayload)
+		if err != nil && x.pool.Options.TaskErrorCallback != nil {
+			x.pool.Options.TaskErrorCallback(ctx, x.pool, x, task, err)
 		}
 	}
 
@@ -206,49 +205,3 @@ func (x *Consumer) Shutdown() {
 func (x *Consumer) IsShutdown() bool {
 	return x.State() == ConsumerStateShutdown
 }
-
-// ------------------------------------------------ ConsumerStorage ----------------------------------------------------
-
-// ConsumerStorage 保证每个worker都有自己单独的Storage空间用来暂存一些东西
-// Note: 非线程安全，必须保证所有操作都在同一个协程中
-type ConsumerStorage struct {
-	storageMap map[string]any
-}
-
-// NewWorkerStorage 创建一个用来存储数据的东东
-func NewWorkerStorage() *ConsumerStorage {
-	return &ConsumerStorage{
-		storageMap: make(map[string]any),
-	}
-}
-
-// Store 把内容暂存到Consumer的存储空间中，相当于是一个简单的KV数据库
-func (x *ConsumerStorage) Store(key string, value any) {
-	x.storageMap[key] = value
-}
-
-// Load 从Consumer的存储空间读取内容
-func (x *ConsumerStorage) Load(key string) any {
-	return x.storageMap
-}
-
-// Clear 清空存储空间
-func (x *ConsumerStorage) Clear() {
-	x.storageMap = make(map[string]any)
-}
-
-// List 列出当前存储的所有KV对
-func (x *ConsumerStorage) List() []*tuple.Tuple2[string, any] {
-	result := make([]*tuple.Tuple2[string, any], 0)
-	for key, value := range x.storageMap {
-		result = append(result, tuple.New2(key, value))
-	}
-	return result
-}
-
-// Size 返回当前存储的大小
-func (x *ConsumerStorage) Size() int {
-	return len(x.storageMap)
-}
-
-// ---------------------------------------------------------------------------------------------------------------------

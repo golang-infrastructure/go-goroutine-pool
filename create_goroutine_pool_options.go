@@ -13,7 +13,7 @@ const (
 	TaskQueueMaxLengthUnlimited = 0
 
 	// DefaultTaskQueueMaxLength 默认的任务队列的最大长度，当任务队列中挤压数超过此数量时提交任务时就会卡住直到任务队列有空闲或者超时
-	DefaultTaskQueueMaxLength = TaskQueueMaxLengthUnlimited
+	DefaultTaskQueueMaxLength = 100000
 )
 
 // 空闲任务的参数控制

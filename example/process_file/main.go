@@ -19,7 +19,7 @@ func readFileLines() []string {
 func main() {
 
 	processGoroutine := goroutine_pool.NewGoroutinePoolWithDefaultOptions()
-	processGoroutine.SetMaxConsumerNum(1)
+	processGoroutine.Options.SetMaxConsumerNum(1)
 
 	for _, line := range readFileLines() {
 		localLine := line

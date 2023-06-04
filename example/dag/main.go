@@ -17,21 +17,27 @@ func main() {
 	// pool-C 负责把分发过来的奇数相加统计奇数和
 
 	poolA := goroutine_pool.NewGoroutinePoolWithDefaultOptions()
-	poolA.PoolName = "pool-A"
-	poolA.TaskPayloadConsumeFunc = func(ctx context.Context, pool *goroutine_pool.GoroutinePool, worker *goroutine_pool.Consumer, taskPayload any) error {
+	poolA.Options.PoolName = "pool-A"
+	poolA.Options.TaskPayloadConsumeFunc = func(ctx context.Context, pool *goroutine_pool.GoroutinePool, worker *goroutine_pool.Consumer, taskPayload any) error {
 		num := taskPayload.(int)
 		if num%2 == 0 {
-			_ = pool.SubmitNextTaskByPayloadToPool(ctx, num, "pool-B")
+			err := pool.SubmitNextTaskPayloadByPoolName(ctx, "pool-B", num)
+			if err != nil {
+				panic(err)
+			}
 		} else {
-			_ = pool.SubmitNextTaskByPayloadToPool(ctx, num, "pool-C")
+			err := pool.SubmitNextTaskPayloadByPoolName(ctx, "pool-C", num)
+			if err != nil {
+				panic(err)
+			}
 		}
 		return nil
 	}
 
 	resultB := atomic.Int64{}
 	poolB := goroutine_pool.NewGoroutinePoolWithDefaultOptions()
-	poolB.SetPoolName("pool-B")
-	poolB.TaskPayloadConsumeFunc = func(ctx context.Context, pool *goroutine_pool.GoroutinePool, worker *goroutine_pool.Consumer, taskPayload any) error {
+	poolB.Options.SetPoolName("pool-B")
+	poolB.Options.TaskPayloadConsumeFunc = func(ctx context.Context, pool *goroutine_pool.GoroutinePool, worker *goroutine_pool.Consumer, taskPayload any) error {
 		num := taskPayload.(int)
 		resultB.Add(int64(num))
 		return nil
@@ -40,8 +46,8 @@ func main() {
 
 	resultC := atomic.Int64{}
 	poolC := goroutine_pool.NewGoroutinePoolWithDefaultOptions()
-	poolC.SetPoolName("pool-C")
-	poolB.TaskPayloadConsumeFunc = func(ctx context.Context, pool *goroutine_pool.GoroutinePool, worker *goroutine_pool.Consumer, taskPayload any) error {
+	poolC.Options.SetPoolName("pool-C")
+	poolC.Options.TaskPayloadConsumeFunc = func(ctx context.Context, pool *goroutine_pool.GoroutinePool, worker *goroutine_pool.Consumer, taskPayload any) error {
 		num := taskPayload.(int)
 		resultC.Add(int64(num))
 		return nil
@@ -52,7 +58,7 @@ func main() {
 		_ = poolA.SubmitTaskByPayload(context.Background(), i)
 	}
 
-	poolA.ShutdownAndAwaitDAG()
+	poolA.ShutdownAndAwait()
 
 	fmt.Println(resultB.Load())
 	fmt.Println(resultC.Load())

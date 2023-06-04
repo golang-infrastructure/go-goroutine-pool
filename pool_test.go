@@ -3,6 +3,7 @@ package goroutine_pool
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 )
@@ -11,7 +12,8 @@ func Test_SinglePool(t *testing.T) {
 
 	// 单个池子的运行
 	options := NewCreateGoroutinePoolOptions()
-	pool := NewGoroutinePool(options)
+	pool, err := NewGoroutinePool(options)
+	assert.Nil(t, err)
 
 	for i := 0; i < 100; i++ {
 		err := pool.SubmitTaskByFunc(context.Background(), func(ctx context.Context, pool *GoroutinePool, worker *Consumer) error {
