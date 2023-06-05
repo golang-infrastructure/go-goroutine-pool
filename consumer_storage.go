@@ -25,6 +25,11 @@ func (x *ConsumerStorage) Load(key string) any {
 	return x.storageMap[key]
 }
 
+func (x *ConsumerStorage) Contains(key string) bool {
+	_, exists := x.storageMap[key]
+	return exists
+}
+
 func (x *ConsumerStorage) LoadString(key string) string {
 	load := x.Load(key)
 	return load.(string)
