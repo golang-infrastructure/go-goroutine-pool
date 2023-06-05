@@ -22,7 +22,7 @@ func (x *ConsumerStorage) Store(key string, value any) {
 
 // Load 从Consumer的存储空间读取内容
 func (x *ConsumerStorage) Load(key string) any {
-	return x.storageMap
+	return x.storageMap[key]
 }
 
 func (x *ConsumerStorage) LoadString(key string) string {
